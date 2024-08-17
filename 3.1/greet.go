@@ -1,44 +1,52 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"plugin"
+	"os/exec"
+
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-plugin"
+
+	"nojiri1098/go-expert/3.1/common"
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		exit(errors.New("invalid argument"))
-	}
+	logger := hclog.New(&hclog.LoggerOptions{
+		Name:   "plugin",
+		Output: os.Stdout,
+		Level:  hclog.Warn,
+	})
 
-	if err := greet(os.Args[1]); err != nil {
+	client := plugin.NewClient(&plugin.ClientConfig{
+		HandshakeConfig: common.HandshakeConfig,
+		Plugins: map[string]plugin.Plugin{
+			"greeter": &common.GreeterPlugin{},
+		},
+		Cmd:    exec.Command("./ja"),
+		Logger: logger,
+	})
+	defer client.Kill()
+
+	rpcClienet, err := client.Client()
+	if err != nil {
 		exit(err)
 	}
+
+	raw, err := rpcClienet.Dispense("greeter")
+	if err != nil {
+		exit(err)
+	}
+
+	greeter := raw.(common.Greeter)
+	resp, err := greeter.Greet()
+	if err != nil {
+		exit(err)
+	}
+	fmt.Println(resp)
 }
 
 func exit(err error) {
 	_, _ = fmt.Fprintf(os.Stderr, "error: %s\n", err)
 	os.Exit(1)
-}
-
-func greet(lang string) error {
-	p, err := plugin.Open(lang + ".so")
-	if err != nil {
-		return err
-	}
-
-	v, err := p.Lookup("Greet")
-	if err != nil {
-		return err
-	}
-
-	f, ok := v.(func())
-	if !ok {
-		return errors.New(`Greet must be a "func()"`)
-	}
-
-	f()
-
-	return nil
 }
